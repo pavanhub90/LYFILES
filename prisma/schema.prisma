@@ -1,0 +1,168 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  plan          Plan      @default(FREE)
+  apiKey        String?   @unique
+  apiKeyHash    String?
+  accounts      Account[]
+  sessions      Session[]
+  files         File[]
+  conversions   Conversion[]
+  scheduledJobs ScheduledJob[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model File {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalName   String
+  storedName     String       // UUID-based safe filename
+  originalFormat String       // e.g. "pdf"
+  mimeType       String
+  category       FileCategory
+  s3Key          String
+  s3Bucket       String
+  size           Int          // bytes
+  hash           String       // SHA-256 for deduplication
+  metadata       Json?        // width, height, duration, codec etc.
+  conversions    Conversion[]
+  createdAt      DateTime     @default(now())
+  expiresAt      DateTime?    // null = never (Pro), 7 days (Free)
+
+  @@index([userId])
+  @@index([hash])
+}
+
+model Conversion {
+  id            String           @id @default(cuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId        String
+  file          File             @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  targetFormat  String
+  status        ConversionStatus @default(PENDING)
+  outputS3Key   String?
+  outputSize    Int?
+  jobId         String?          // BullMQ job ID
+  errorMessage  String?
+  options       Json?            // quality, resolution etc.
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+
+  @@index([userId])
+  @@index([fileId])
+  @@index([status])
+}
+
+model ScheduledJob {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  fileId        String?
+  targetFormat  String
+  scheduleAt    DateTime?
+  cronExpression String?        // e.g. "0 9 * * 1" for weekly Monday 9AM
+  repeat        RepeatInterval?
+  bullJobId     String?
+  isActive      Boolean         @default(true)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  emailOnDone   Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   // success | error | info
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum Plan {
+  FREE
+  PRO
+  TEAM
+}
+
+enum FileCategory {
+  DOCUMENTS
+  IMAGES
+  VIDEOS
+  AUDIO
+  ARCHIVES
+  OTHER
+}
+
+enum ConversionStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+enum RepeatInterval {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
